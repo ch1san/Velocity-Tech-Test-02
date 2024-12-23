@@ -14,3 +14,5 @@ npm run dev
 - Compare at price styling on product and item cards
 - Cart icon counter
 - Hover states
+- Variant selection on product cards
+- Products without image placeholder
