@@ -1,0 +1,123 @@
+.product-card {
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0px 0px 15px -2px #0000001a;
+  border-radius: 6px;
+  padding: 1.25rem;
+  gap: 20px;
+
+  & .product-card__tags {
+    width: 100%;
+    display: flex;
+    justify-content: start;
+    align-items: center;
+    gap: 10px;
+
+    .product-card-tag {
+      height: 100%;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 12px;
+      color: #000;
+      padding: 6px 13px;
+      border-radius: 6px;
+      background: #facdce;
+
+      &.product-card-tag--new {
+        background: #b2dae0;
+      }
+    }
+
+    button {
+      margin-left: auto;
+
+      svg {
+        color: #8f9296;
+      }
+    }
+  }
+
+  & .product-card__image {
+    &.product-card__image--placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      aspect-ratio: 1/1;
+    }
+
+    img {
+      width: 100%;
+      aspect-ratio: 1/1;
+      object-fit: contain;
+    }
+  }
+
+  & .product-card__pi {
+    h3 {
+      font-size: 16px;
+      font-weight: 700;
+      line-height: 24px;
+    }
+
+    p {
+      font-size: 14px;
+      font-weight: 400;
+      line-height: 21px;
+      color: #5d5f63;
+    }
+  }
+
+  & .product-card__si {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: auto;
+    padding-top: 20px;
+    border-top: 1px solid #e5e5e5;
+  }
+
+  & .product-card__quantity {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+
+    button {
+      height: 40px;
+
+      &:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+    }
+
+    span {
+      width: 60px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 6px;
+      border: 1px solid #e5e5e5;
+      font-size: 16px;
+      font-weight: 700;
+      line-height: 1;
+      text-align: center;
+
+      @media only screen and (min-width: 640px) {
+        width: 40px;
+      }
+    }
+  }
+
+  & .product-card__price {
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 26px;
+    color: #000;
+  }
+}

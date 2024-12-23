@@ -1,7 +1,8 @@
-const PRODUCT_FIEDS = `#graphql
+const PRODUCT_FEEDS = `#graphql
 fragment ProductFields on Product {
     id
     title
+    createdAt
     variants(first: 100, sortKey: POSITION) {
         edges {
             node {
@@ -11,6 +12,7 @@ fragment ProductFields on Product {
                 quantityAvailable
                 price {
                     amount
+                    currencyCode
                 }
                 image {
                     url
@@ -36,6 +38,7 @@ fragment ProductFields on Product {
         name
         id
     }
+    tags
 }
 `
 
@@ -49,5 +52,5 @@ export const getAllProducts = `#graphql
             }
         }
     }
-    ${PRODUCT_FIEDS}
+    ${PRODUCT_FEEDS}
 `;
