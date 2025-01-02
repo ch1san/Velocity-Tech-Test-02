@@ -16,3 +16,7 @@ npm run dev
 - Hover states
 - Variant selection on product cards
 - Products without image placeholder
+
+## Could have done
+
+- Move icons to own files and call as required for cleaner codebase

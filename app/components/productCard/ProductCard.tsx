@@ -12,26 +12,32 @@ const ProductCard = ({ product }: { product: ProductFieldsFragment }) => {
 
   const variantQuantity = product.variants.edges[0].node.quantityAvailable ?? 0;
 
-  const handleQuantityChange = (newQuantity: number) => {
-    setQuantity(newQuantity);
-
+  const handleQuantityChange = async (newQuantity: number) => {
     if (!selectedVariant) return;
 
-    const cartItem = cartItems.find((item) => item.id === selectedVariant.id);
+    try {
+      const cartItem = cartItems.find((item) => item.id === selectedVariant.id);
 
-    if (cartItem) {
-      updateQuantity(selectedVariant.id, newQuantity);
-    } else if (newQuantity > 0) {
-      addToCart(
-        {
-          id: selectedVariant.id,
-          title: product.title,
-          price: selectedVariant.price.amount,
-          image: product.featuredImage?.url,
-          variantTitle: selectedVariant.title,
-        },
-        newQuantity
-      );
+      if (cartItem) {
+        // If item exists in cart, update quantity
+        await updateQuantity(selectedVariant.id, newQuantity);
+      } else if (newQuantity > 0) {
+        // If item doesn't exist and quantity > 0, add to cart
+        await addToCart(
+          {
+            id: selectedVariant.id,
+            title: product.title,
+            price: selectedVariant.price.amount,
+            image: product.featuredImage?.url,
+            variantTitle: selectedVariant.title,
+          },
+          newQuantity
+        );
+      }
+
+      setQuantity(newQuantity);
+    } catch (error) {
+      console.error('Error updating cart:', error);
     }
   };
 
@@ -47,14 +53,11 @@ const ProductCard = ({ product }: { product: ProductFieldsFragment }) => {
     }
   };
 
+  // Update local quantity when cart items change
   useEffect(() => {
     if (selectedVariant) {
       const cartItem = cartItems.find((item) => item.id === selectedVariant.id);
-      if (cartItem) {
-        setQuantity(cartItem.quantity);
-      } else {
-        setQuantity(0);
-      }
+      setQuantity(cartItem?.quantity || 0);
     }
   }, [cartItems, selectedVariant]);
 

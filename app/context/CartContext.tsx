@@ -1,8 +1,10 @@
 import { createContext, ReactNode, useContext, useState, Dispatch, SetStateAction, useEffect } from 'react';
+import { useShopifyClient } from './ShopifyClient';
 
 // Add interface for cart items
 interface CartItem {
-  id: string;
+  id: string; // variant ID
+  lineId: string; // cart line ID
   title: string;
   price: string;
   quantity: number;
@@ -14,90 +16,432 @@ interface CartContextType {
   showCart: boolean;
   setShowCart: Dispatch<SetStateAction<boolean>>;
   cartItems: CartItem[];
-  addToCart: (item: Omit<CartItem, 'quantity'>, quantity: number) => void;
-  removeFromCart: (itemId: string) => void;
-  updateQuantity: (itemId: string, quantity: number) => void;
+  addToCart: (item: Omit<CartItem, 'quantity' | 'lineId'>, quantity: number) => Promise<void>;
+  removeFromCart: (variantId: string) => Promise<void>;
+  updateQuantity: (variantId: string, quantity: number) => Promise<void>;
   formatPrice: (amount: string, currencyCode: string) => string;
   currencyCode: string;
   setCurrencyCode: Dispatch<SetStateAction<string>>;
+  cartId: string | null;
 }
 
 export const CartContext = createContext<CartContextType>({
   showCart: false,
   setShowCart: () => {},
   cartItems: [],
-  addToCart: () => {},
-  removeFromCart: () => {},
-  updateQuantity: () => {},
+  addToCart: async () => Promise.resolve(),
+  removeFromCart: async () => Promise.resolve(),
+  updateQuantity: async () => Promise.resolve(),
   formatPrice: () => '',
   currencyCode: 'USD',
   setCurrencyCode: () => {},
+  cartId: null,
 });
 
 interface CartProviderProps {
   children: ReactNode;
 }
 
-// Add localStorage keys
-const CART_STORAGE_KEY = 'shopify_cart_items';
+const CART_ID_KEY = 'shopify_cart_id';
+
+// Add proper type for the GraphQL response
+interface CartLineNode {
+  node: {
+    id: string;
+    quantity: number;
+    merchandise: {
+      id: string;
+      title: string;
+      product: {
+        title: string;
+      };
+      price: {
+        amount: string;
+        currencyCode: string;
+      };
+      image?: {
+        url: string;
+      };
+    };
+  };
+}
 
 export function CartProvider({ children }: CartProviderProps) {
   const [showCart, setShowCart] = useState<boolean>(false);
   const [currencyCode, setCurrencyCode] = useState<string>('USD');
-  // Initialize cart from localStorage if available
-  const [cartItems, setCartItems] = useState<CartItem[]>(() => {
-    if (typeof window === 'undefined') return [];
-
-    const savedCart = localStorage.getItem(CART_STORAGE_KEY);
-    return savedCart ? JSON.parse(savedCart) : [];
-  });
-
-  // Save cart to localStorage whenever it changes
-  useEffect(() => {
-    if (cartItems.length > 0) {
-      localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cartItems));
-    } else {
-      localStorage.removeItem(CART_STORAGE_KEY);
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [cartId, setCartId] = useState<string | null>(() => {
+    // Initialize cartId from localStorage if available
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem(CART_ID_KEY);
     }
-  }, [cartItems]);
+    return null;
+  });
+  const client = useShopifyClient();
 
-  const addToCart = (item: Omit<CartItem, 'quantity'>, quantity: number) => {
-    setCartItems((prevItems) => {
-      const existingItem = prevItems.find((i) => i.id === item.id);
+  // Update localStorage when cartId changes
+  useEffect(() => {
+    if (cartId) {
+      localStorage.setItem(CART_ID_KEY, cartId);
+    } else {
+      localStorage.removeItem(CART_ID_KEY);
+    }
+  }, [cartId]);
 
-      let newItems;
-      if (existingItem) {
-        newItems = prevItems.map((i) => (i.id === item.id ? { ...i, quantity: i.quantity + quantity } : i));
-      } else {
-        newItems = [...prevItems, { ...item, quantity }];
+  // Fetch existing cart data on mount
+  useEffect(() => {
+    const fetchCart = async () => {
+      if (!cartId) return;
+
+      const query = `
+        query getCart($cartId: ID!) {
+          cart(id: $cartId) {
+            id
+            lines(first: 100) {
+              edges {
+                node {
+                  id
+                  quantity
+                  merchandise {
+                    ... on ProductVariant {
+                      id
+                      title
+                      product {
+                        title
+                      }
+                      price {
+                        amount
+                        currencyCode
+                      }
+                      image {
+                        url
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      `;
+
+      try {
+        const { data } = await client.request(query, {
+          variables: { cartId },
+        });
+
+        if (data?.cart) {
+          const items = data.cart.lines.edges.map(({ node }: any) => ({
+            id: node.merchandise.id,
+            lineId: node.id,
+            title: node.merchandise.product.title,
+            price: node.merchandise.price.amount,
+            quantity: node.quantity,
+            image: node.merchandise.image?.url,
+            variantTitle: node.merchandise.title,
+          }));
+          setCartItems(items);
+        } else {
+          // If cart not found, clear the stored ID and create a new cart
+          localStorage.removeItem(CART_ID_KEY);
+          setCartId(null);
+          const cart = await createCart();
+          if (cart) {
+            setCartId(cart.id);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching cart:', error);
+        // If there's an error, clear the stored ID and create a new cart
+        localStorage.removeItem(CART_ID_KEY);
+        setCartId(null);
+        const cart = await createCart();
+        if (cart) {
+          setCartId(cart.id);
+        }
       }
+    };
 
-      return newItems;
-    });
+    fetchCart();
+  }, []);
+
+  // Create cart mutation
+  const createCart = async () => {
+    const mutation = `
+      mutation cartCreate {
+        cartCreate {
+          cart {
+            id
+            lines(first: 100) {
+              edges {
+                node {
+                  id
+                  quantity
+                  merchandise {
+                    ... on ProductVariant {
+                      id
+                      title
+                      price {
+                        amount
+                        currencyCode
+                      }
+                      image {
+                        url
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+          userErrors {
+            message
+            field
+          }
+        }
+      }
+    `;
+
+    try {
+      const { data } = await client.request(mutation);
+      if (data?.cartCreate?.cart) {
+        return data.cartCreate.cart;
+      }
+      throw new Error('Failed to create cart');
+    } catch (error) {
+      console.error('Error creating cart:', error);
+      return null;
+    }
   };
 
-  const removeFromCart = (itemId: string) => {
-    setCartItems((prevItems) => {
-      const newItems = prevItems.filter((item) => item.id !== itemId);
+  const addToCart = async (item: Omit<CartItem, 'quantity' | 'lineId'>, quantity: number) => {
+    if (!cartId) {
+      const cart = await createCart();
+      if (!cart) return;
+      setCartId(cart.id);
+    }
 
-      return newItems;
-    });
+    const mutation = `
+      mutation cartLinesAdd($cartId: ID!, $lines: [CartLineInput!]!) {
+        cartLinesAdd(cartId: $cartId, lines: $lines) {
+          cart {
+            lines(first: 100) {
+              edges {
+                node {
+                  id
+                  quantity
+                  merchandise {
+                    ... on ProductVariant {
+                      id
+                      title
+                      product {
+                        title
+                      }
+                      price {
+                        amount
+                        currencyCode
+                      }
+                      image {
+                        url
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+          userErrors {
+            message
+            field
+          }
+        }
+      }
+    `;
+
+    try {
+      const { data } = await client.request(mutation, {
+        variables: {
+          cartId,
+          lines: [
+            {
+              merchandiseId: item.id,
+              quantity,
+            },
+          ],
+        },
+      });
+
+      if (data?.cartLinesAdd?.cart) {
+        const newItems = data.cartLinesAdd.cart.lines.edges.map(({ node }: any) => ({
+          id: node.merchandise.id,
+          lineId: node.id,
+          title: node.merchandise.product.title,
+          price: node.merchandise.price.amount,
+          quantity: node.quantity,
+          image: node.merchandise.image?.url,
+          variantTitle: node.merchandise.title,
+        }));
+        setCartItems(newItems);
+      }
+    } catch (error) {
+      console.error('Error adding to cart:', error);
+    }
   };
 
-  const updateQuantity = (itemId: string, quantity: number) => {
-    setCartItems((prevItems) => {
-      // Remove item if quantity is 0
-      if (quantity === 0) {
-        const newItems = prevItems.filter((item) => item.id !== itemId);
+  const removeFromCart = async (variantId: string) => {
+    if (!cartId) return;
 
-        return newItems;
+    const cartLine = cartItems.find((item) => item.id === variantId);
+    if (!cartLine) return;
+
+    const mutation = `
+      mutation cartLinesRemove($cartId: ID!, $lineIds: [ID!]!) {
+        cartLinesRemove(cartId: $cartId, lineIds: $lineIds) {
+          cart {
+            lines(first: 100) {
+              edges {
+                node {
+                  id
+                  quantity
+                  merchandise {
+                    ... on ProductVariant {
+                      id
+                      title
+                      product {
+                        title
+                      }
+                      price {
+                        amount
+                        currencyCode
+                      }
+                      image {
+                        url
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+          userErrors {
+            message
+            field
+          }
+        }
+      }
+    `;
+
+    try {
+      const { data } = await client.request(mutation, {
+        variables: {
+          cartId,
+          lineIds: [cartLine.lineId],
+        },
+      });
+
+      if (data?.cartLinesRemove?.cart) {
+        const newItems = data.cartLinesRemove.cart.lines.edges.map(({ node }: any) => ({
+          id: node.merchandise.id,
+          lineId: node.id,
+          title: node.merchandise.product.title,
+          price: node.merchandise.price.amount,
+          quantity: node.quantity,
+          image: node.merchandise.image?.url,
+          variantTitle: node.merchandise.title,
+        }));
+        setCartItems(newItems);
+      }
+    } catch (error) {
+      console.error('Error removing from cart:', error);
+    }
+  };
+
+  const updateQuantity = async (variantId: string, quantity: number) => {
+    if (!cartId) {
+      const cart = await createCart();
+      if (!cart) return;
+      setCartId(cart.id);
+    }
+
+    const mutation = `
+      mutation cartLinesUpdate($cartId: ID!, $lines: [CartLineUpdateInput!]!) {
+        cartLinesUpdate(cartId: $cartId, lines: $lines) {
+          cart {
+            lines(first: 100) {
+              edges {
+                node {
+                  id
+                  quantity
+                  merchandise {
+                    ... on ProductVariant {
+                      id
+                      title
+                      product {
+                        title
+                      }
+                      price {
+                        amount
+                        currencyCode
+                      }
+                      image {
+                        url
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+          userErrors {
+            message
+            field
+          }
+        }
+      }
+    `;
+
+    try {
+      // Find the cart line using variant ID
+      const cartLine = cartItems.find((item) => item.id === variantId);
+
+      if (!cartLine) {
+        // If the item isn't in the cart, add it instead
+        const item = {
+          id: variantId,
+          title: '',
+          price: '',
+          variantTitle: '',
+        };
+        return await addToCart(item, quantity);
       }
 
-      // Update quantity for existing item
-      const newItems = prevItems.map((item) => (item.id === itemId ? { ...item, quantity: quantity } : item));
+      const { data } = await client.request(mutation, {
+        variables: {
+          cartId,
+          lines: [
+            {
+              id: cartLine.lineId, // Use the lineId for updates
+              quantity,
+            },
+          ],
+        },
+      });
 
-      return newItems;
-    });
+      if (data?.cartLinesUpdate?.cart) {
+        const newItems = data.cartLinesUpdate.cart.lines.edges.map(({ node }: any) => ({
+          id: node.merchandise.id,
+          lineId: node.id,
+          title: node.merchandise.product.title,
+          price: node.merchandise.price.amount,
+          quantity: node.quantity,
+          image: node.merchandise.image?.url,
+          variantTitle: node.merchandise.title,
+        }));
+        setCartItems(newItems);
+      }
+    } catch (error) {
+      console.error('Error updating cart:', error);
+    }
   };
 
   const formatPrice = (amount: string, currencyCode: string) => {
@@ -119,6 +463,7 @@ export function CartProvider({ children }: CartProviderProps) {
         formatPrice,
         currencyCode,
         setCurrencyCode,
+        cartId,
       }}
     >
       {children}
